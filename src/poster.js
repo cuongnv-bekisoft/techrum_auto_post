@@ -151,9 +151,13 @@ async function post() {
     xfResponse.redirectTarget;
 
   if (redirectUrl) {
-    const fullUrl = redirectUrl.startsWith("http")
+    let fullUrl = redirectUrl.startsWith("http")
       ? redirectUrl
       : "https://www.techrum.vn" + redirectUrl;
+
+    // Rút gọn URL: https://www.techrum.vn/threads/slug.id/ -> https://www.techrum.vn/threads/.id/
+    fullUrl = fullUrl.replace(/\/threads\/.*\.(\d+\/?)$/, "/threads/.$1");
+
     console.log("✅ Đăng bài thành công!");
     console.log("URL:", fullUrl);
 
