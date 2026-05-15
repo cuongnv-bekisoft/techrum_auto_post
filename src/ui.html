@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <title>Techrum Auto Poster</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: Arial, sans-serif;
+      background: #f0f2f5;
+      padding: 20px;
+    }
+    h2 {
+      text-align: center;
+      color: #2c5282;
+      margin-bottom: 20px;
+    }
+    .form-group {
+      margin-bottom: 14px;
+    }
+    label {
+      display: block;
+      font-weight: bold;
+      margin-bottom: 5px;
+      color: #333;
+    }
+    input, textarea {
+      width: 100%;
+      padding: 10px;
+      border: 1px solid #ccc;
+      border-radius: 6px;
+      font-size: 14px;
+      font-family: Arial, sans-serif;
+    }
+    textarea {
+      height: 180px;
+      resize: vertical;
+    }
+    button {
+      width: 100%;
+      padding: 12px;
+      background: #2c5282;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      font-size: 16px;
+      cursor: pointer;
+      margin-top: 5px;
+    }
+    button:hover { background: #2a4a7f; }
+    button:disabled { background: #aaa; cursor: not-allowed; }
+    #status {
+      margin-top: 15px;
+      padding: 12px;
+      border-radius: 6px;
+      font-size: 14px;
+      display: none;
+    }
+    #status.loading { background: #ebf8ff; color: #2b6cb0; display: block; }
+    #status.success { background: #f0fff4; color: #276749; display: block; }
+    #status.error   { background: #fff5f5; color: #c53030; display: block; }
+    #status a { color: #2b6cb0; word-break: break-all; }
+    #log-container {
+      margin-top: 15px;
+      background: #1e1e1e;
+      color: #d4d4d4;
+      padding: 10px;
+      border-radius: 6px;
+      font-family: 'Consolas', 'Monaco', monospace;
+      font-size: 12px;
+      height: 150px;
+      overflow-y: auto;
+      display: none;
+      border: 1px solid #333;
+    }
+    .log-entry { margin-bottom: 2px; white-space: pre-wrap; }
+  </style>
+</head>
+<body>
+  <h2>📝 Techrum Auto Poster</h2>
+
+  <div class="form-group">
+    <label>Tiêu đề bài viết</label>
+    <input type="text" id="title" placeholder="Nhập tiêu đề..." />
+  </div>
+
+  <div class="form-group">
+    <label>Nội dung BB Code</label>
+    <textarea id="bbcode" placeholder="[B]Nội dung[/B]&#10;[URL=https://example.com]Link[/URL]"></textarea>
+  </div>
+
+  <div class="form-group">
+    <label>Chọn Forum</label>
+    <div style="display: flex; gap: 10px;">
+      <select id="forum_select" style="flex: 1; padding: 10px; border-radius: 6px; border: 1px solid #ccc;">
+        <option value="">-- Chọn chuyên mục --</option>
+      </select>
+      <button onclick="openManageForums()" style="width: auto; padding: 0 15px; margin: 0; background: #4a5568;">⚙️</button>
+    </div>
+  </div>
+
+  <button id="btnPost" onclick="submitPost()">🚀 Đăng bài</button>
+
+  <div id="status"></div>
+  <div id="log-container"></div>
+
+  <!-- Modal Quản lý Forum -->
+  <div id="modal-overlay" onclick="closeManageForums()"></div>
+  <div id="forum-modal">
+    <h3>📂 Quản lý danh sách Forum</h3>
+    <div class="form-group">
+      <input type="text" id="new-forum-name" placeholder="Tên mục (VD: Công nghệ)" style="margin-bottom: 5px;">
+      <input type="text" id="new-forum-id" placeholder="ID (VD: the-gioi.84)">
+      <button onclick="addForum()" style="background: #2f855a; margin-top: 10px;">➕ Thêm mới</button>
+    </div>
+    <div id="forum-list"></div>
+    <button onclick="closeManageForums()" style="background: #718096; margin-top: 10px;">Đóng</button>
+  </div>
+
+  <style>
+    /* Modal Styles */
+    #modal-overlay {
+      position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+      background: rgba(0,0,0,0.5); display: none; z-index: 100;
+    }
+    #forum-modal {
+      position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+      background: white; padding: 20px; border-radius: 8px; width: 90%; max-width: 400px;
+      display: none; z-index: 101; box-shadow: 0 4px 20px rgba(0,0,0,0.2);
+    }
+    #forum-list {
+      max-height: 200px; overflow-y: auto; margin-top: 15px; border-top: 1px solid #eee; padding-top: 10px;
+    }
+    .forum-item {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 8px; border-bottom: 1px solid #f7fafc; font-size: 13px;
+    }
+    .forum-item:hover { background: #f7fafc; }
+    .forum-actions button {
+      width: auto; padding: 4px 8px; font-size: 11px; margin: 0 2px;
+    }
+  </style>
+
+  <script>
+    const { ipcRenderer } = require("electron");
+    let allForums = [];
+
+    // Load forums on startup
+    ipcRenderer.send("get-forums");
+    ipcRenderer.on("forums-data", (event, data) => {
+      allForums = data;
+      renderForumSelect();
+      renderForumList();
+    });
+
+    function renderForumSelect() {
+      const select = document.getElementById("forum_select");
+      const currentValue = select.value;
+      select.innerHTML = '<option value="">-- Chọn chuyên mục --</option>';
+      allForums.forEach(f => {
+        const opt = document.createElement("option");
+        opt.value = f.id;
+        opt.textContent = `${f.name} (${f.id})`;
+        select.appendChild(opt);
+      });
+      select.value = currentValue;
+    }
+
+    function renderForumList() {
+      const list = document.getElementById("forum-list");
+      list.innerHTML = "";
+      allForums.forEach((f, index) => {
+        const item = document.createElement("div");
+        item.className = "forum-item";
+        item.innerHTML = `
+          <span><strong>${f.name}</strong> (${f.id})</span>
+          <div class="forum-actions">
+            <button onclick="deleteForum(${index})" style="background: #e53e3e;">❌</button>
+          </div>
+        `;
+        list.appendChild(item);
+      });
+    }
+
+    function openManageForums() {
+      document.getElementById("modal-overlay").style.display = "block";
+      document.getElementById("forum-modal").style.display = "block";
+    }
+
+    function closeManageForums() {
+      document.getElementById("modal-overlay").style.display = "none";
+      document.getElementById("forum-modal").style.display = "none";
+    }
+
+    function addForum() {
+      const name = document.getElementById("new-forum-name").value.trim();
+      const id = document.getElementById("new-forum-id").value.trim();
+      if (!name || !id) return alert("Vui lòng nhập đủ Tên và ID");
+      
+      allForums.push({ name, id });
+      ipcRenderer.send("save-forums", allForums);
+      
+      document.getElementById("new-forum-name").value = "";
+      document.getElementById("new-forum-id").value = "";
+    }
+
+    function deleteForum(index) {
+      if (confirm("Xóa chuyên mục này?")) {
+        allForums.splice(index, 1);
+        ipcRenderer.send("save-forums", allForums);
+      }
+    }
+
+    function submitPost() {
+      const title = document.getElementById("title").value.trim();
+      const bbcode = document.getElementById("bbcode").value.trim();
+      const forum_id = document.getElementById("forum_select").value;
+
+      if (!title || !bbcode || !forum_id) {
+        showStatus("error", "⚠️ Vui lòng điền đủ tiêu đề, nội dung và chọn forum!");
+        return;
+      }
+
+      document.getElementById("btnPost").disabled = true;
+      document.getElementById("log-container").innerHTML = "";
+      document.getElementById("log-container").style.display = "block";
+      showStatus("loading", "⏳ Đang tiến hành, theo dõi log bên dưới...");
+
+      ipcRenderer.send("post-article", { title, bbcode, forum_id });
+    }
+
+    ipcRenderer.on("post-log", (event, text) => {
+      const container = document.getElementById("log-container");
+      const entry = document.createElement("div");
+      entry.className = "log-entry";
+      entry.textContent = text;
+      container.appendChild(entry);
+      container.scrollTop = container.scrollHeight;
+    });
+
+    ipcRenderer.on("post-status", (event, result) => {
+      document.getElementById("btnPost").disabled = false;
+
+      if (result.type === "success") {
+        showStatus("success", result.message + '<br><a href="#" onclick="openUrl(\'' + result.url + '\')">' + result.url + "</a>");
+      } else {
+        showStatus(result.type, result.message);
+      }
+    });
+
+    function showStatus(type, message) {
+      const el = document.getElementById("status");
+      el.className = type;
+      el.innerHTML = message;
+    }
+
+    function openUrl(url) {
+      require("electron").shell.openExternal(url);
+    }
+  </script>
+</body>
+</html>
